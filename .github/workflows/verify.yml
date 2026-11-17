@@ -45,7 +45,6 @@ jobs:
         env:
           NODE_LINK: ${{ secrets.NODE_LINK }}
           PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
-        working-directory: github-actions
         run: |
           python3 setup_proxy.py || echo "代理启动失败，继续直连（见日志）"
 
@@ -60,7 +59,6 @@ jobs:
           PROXY_SERVER: ${{ env.PROXY_SERVER }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        working-directory: github-actions
         run: |
           xvfb-run --auto-servernum python3 app.py
 
