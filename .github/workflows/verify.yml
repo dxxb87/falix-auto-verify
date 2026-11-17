@@ -1,0 +1,84 @@
+name: Falix Auto Verify
+
+# 每 30 分钟检查一次；也可以在 Actions 里手动触发（workflow_dispatch）
+on:
+  schedule:
+    # AFK 验证窗口只有 30 分钟，30 分钟一跑可能赶不上，改成每 10 分钟
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 设置 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: 安装系统依赖和 Python 依赖
+        run: |
+          sudo apt-get update
+          # simple-obfs 提供 obfs-local：GLaDOS 节点全是 ss + obfs，没有它
+          # sing-box 的 outbound 连不上，但 1080 端口照样监听，会误报“已启动”。
+          sudo apt-get install -y xvfb x11-utils xdotool scrot fonts-noto-cjk jq wget curl simple-obfs
+          which obfs-local || echo "警告：未装上 obfs-local，ss+obfs 代理会失败"
+          pip install seleniumbase requests
+          seleniumbase install chromedriver
+
+      # 代理（可选，优先级见 setup_proxy.py）：
+      #   1. NODE_LINK Secret（如 hysteria2:// / vless:// / vmess:// /
+      #      tuic:// / anytls:// / trojan:// / ss://）：setup_proxy.py
+      #      用 sing-box 转成 127.0.0.1:1080，写进 $GITHUB_ENV 的 PROXY_SERVER；
+      #   2. PROXY_SERVER Secret（如 http://127.0.0.1:1080 或住宅代理）：直接透传；
+      #   3. 都没有：直连，机房 IP 很可能过不了 cf 盾。
+      # 2026-11-15：Mihomo 订阅（MIHOMO_YAML_URL / MIHOMO_NODE）已取消，
+      # 只留 NODE_LINK 一条代理链接，仓库里那两个 Secret 可以删了。
+      # 注意：Secrets 留空时传过去是空字符串，app.py 会把它当没配置处理，
+      # 不会覆盖 config.py / 代码直写里的值。
+      - name: 从 NODE_LINK 启动代理（sing-box）
+        env:
+          NODE_LINK: ${{ secrets.NODE_LINK }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+        working-directory: github-actions
+        run: |
+          python3 setup_proxy.py || echo "代理启动失败，继续直连（见日志）"
+
+      - name: 运行自动验证脚本
+        env:
+          FALIX_API_KEY: ${{ secrets.FALIX_API_KEY }}
+          FALIX_BATCH: ${{ secrets.FALIX_BATCH }}
+          SERVER_ID: ${{ secrets.SERVER_ID }}
+          ACTION_URL: ${{ secrets.ACTION_URL }}
+          VERIFY_URL: ${{ secrets.VERIFY_URL }}
+          NODE_LINK: ${{ secrets.NODE_LINK }}
+          PROXY_SERVER: ${{ env.PROXY_SERVER }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        working-directory: github-actions
+        run: |
+          xvfb-run --auto-servernum python3 app.py
+
+      # app.py 出问题时会把截图存到 debug/（比如 Turnstile 显示加载失败时），
+      # 这一步把截图传成 Artifacts，跑完后在那次运行的页面底部就能下载查看，
+      # 不用再靠猜日志里的文案判断页面到底长什么样。
+      - name: 上传调试截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: github-actions/debug/
+          if-no-files-found: ignore
+
+      - name: 清理进程
+        if: always()
+        run: |
+          pkill -f sing-box || true
+          pkill -f chromedriver || true
+          pkill -f chrome || true
+          pkill -f Xvfb || true
