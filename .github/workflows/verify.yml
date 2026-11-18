@@ -1,6 +1,6 @@
 name: Falix Auto Verify
 
-# 每 30 分钟检查一次；也可以在 Actions 里手动触发（workflow_dispatch）
+# 每 10 分钟检查一次；也可以在 Actions 里手动触发（workflow_dispatch）
 on:
   schedule:
     # AFK 验证窗口只有 30 分钟，30 分钟一跑可能赶不上，改成每 10 分钟
